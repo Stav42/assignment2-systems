@@ -5,6 +5,7 @@ from cs336_basics.data import get_batch
 import timeit
 from cs336_basics.nn_utils import cross_entropy
 from cs336_basics.optimizer import AdamW
+import torch.cuda.nvtx as nvtx
 
 # import modal
 
@@ -122,20 +123,25 @@ def benchmark(params: dict):
     # Evaluation steps
     for _ in range(evaluation_steps):
         if benchmark_type == "forward_only":
-            with torch.no_grad():
+            with torch.no_grad(), nvtx.range("forward"):
                 logits = lm(x)
         if benchmark_type == "forward_backward":
-            logits = lm(x)
+            with nvtx.range("forward"):
+                logits = lm(x)
             optimizer.zero_grad()
-            loss = cross_entropy(logits, y)  # Compute loss for benchmarking
-            loss.backward()
+            with nvtx.range("backward"):
+                loss = cross_entropy(logits, y)  # Compute loss for benchmarking
+                loss.backward()
             # optimizer.step()
         if benchmark_type == "optimizer":
-            logits = lm(x)
+            with nvtx.range("forward"):
+                logits = lm(x)
             optimizer.zero_grad()
-            loss = cross_entropy(logits, y)  # Compute loss for benchmarking
-            loss.backward()
-            optimizer.step()
+            with nvtx.range("backward"):
+                loss = cross_entropy(logits, y)  # Compute loss for benchmarking
+                loss.backward()
+            with nvtx.range("optimizer_step"):
+                optimizer.step()
 
         torch.cuda.synchronize() if "cuda" in device else None
         output_time = timeit.default_timer() - start_time
