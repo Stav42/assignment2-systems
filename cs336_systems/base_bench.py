@@ -57,6 +57,7 @@ parser.add_argument("--forward_backward", action="store_true", default=False, he
 parser.add_argument("--optimizer", action="store_true", default=False, help="Optimizer to use (default: adamw)")
 parser.add_argument("--local", action="store_true", default=False, help="If set, run the benchmark locally without using Modal")
 parser.add_argument("--mixed_precision", action="store_true", default=False, help="If set, run forward/loss under BF16 autocast mixed precision")
+parser.add_argument("--memory_profiling", action="store_true", default=False, help="If set, set memory profiling and dump memory snapshot to file")
 args = parser.parse_args()
 
 '''
@@ -105,7 +106,6 @@ def benchmark(params: dict):
     )
     print(f"Mixed precision (BF16 autocast): {mixed_precision and 'cuda' in device}")
 
-
     if forward_only:
         benchmark_type = "forward_only"
         print("Benchmarking forward pass only...")
@@ -146,6 +146,9 @@ def benchmark(params: dict):
     for _ in range(warmup_steps):
         lm(x)
 
+    if args.memory_profiling:
+        torch.cuda.memory._record_memory_history(max_entries=1000000)
+
     torch.cuda.synchronize() if "cuda" in device else None
     start_time = timeit.default_timer()
     print(f"Starting benchmark for {benchmark_type} with {evaluation_steps} steps...")
@@ -181,6 +184,10 @@ def benchmark(params: dict):
     print(f"Time taken: {end_time - start_time:.2f} seconds")
     print(f"Average time per step: {(end_time - start_time) / evaluation_steps:.2f} seconds")
     print(f"Total iterations: {evaluation_steps}")
+
+    if args.memory_profiling:
+        torch.cuda.memory._dump_snapshot("./memory_snapshot.pickle")
+        torch.cuda.memory._record_memory_history(enabled=None)
 
     # return lm
     return
