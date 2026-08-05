@@ -1,5 +1,6 @@
 import argparse
 import math
+from contextlib import nullcontext
 import cs336_basics.model
 from cs336_basics.model import BasicsTransformerLM
 from cs336_basics.nn_utils import softmax
@@ -55,6 +56,7 @@ parser.add_argument("--forward_only", action="store_true", default=False, help="
 parser.add_argument("--forward_backward", action="store_true", default=False, help="If set, perform both forward and backward pass with optimizer step")
 parser.add_argument("--optimizer", action="store_true", default=False, help="Optimizer to use (default: adamw)")
 parser.add_argument("--local", action="store_true", default=False, help="If set, run the benchmark locally without using Modal")
+parser.add_argument("--mixed_precision", action="store_true", default=False, help="If set, run forward/loss under BF16 autocast mixed precision")
 args = parser.parse_args()
 
 '''
@@ -94,6 +96,14 @@ def benchmark(params: dict):
     device = params["device"]
     evaluation_steps = params["evaluation_steps"]
     warmup_steps = params["warmup_steps"]
+    mixed_precision = params["mixed_precision"]
+
+    autocast_ctx = (
+        torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if mixed_precision and "cuda" in device
+        else nullcontext()
+    )
+    print(f"Mixed precision (BF16 autocast): {mixed_precision and 'cuda' in device}")
 
 
     if forward_only:
@@ -143,22 +153,22 @@ def benchmark(params: dict):
     # Evaluation steps
     for _ in range(evaluation_steps):
         if benchmark_type == "forward_only":
-            with torch.no_grad(), nvtx.range("forward"):
+            with torch.no_grad(), nvtx.range("forward"), autocast_ctx:
                 logits = lm(x)
         if benchmark_type == "forward_backward":
-            with nvtx.range("forward"):
+            with nvtx.range("forward"), autocast_ctx:
                 logits = lm(x)
+                loss = cross_entropy(logits, y)  # Compute loss for benchmarking
             optimizer.zero_grad()
             with nvtx.range("backward"):
-                loss = cross_entropy(logits, y)  # Compute loss for benchmarking
                 loss.backward()
             # optimizer.step()
         if benchmark_type == "optimizer":
-            with nvtx.range("forward"):
+            with nvtx.range("forward"), autocast_ctx:
                 logits = lm(x)
+                loss = cross_entropy(logits, y)  # Compute loss for benchmarking
             optimizer.zero_grad()
             with nvtx.range("backward"):
-                loss = cross_entropy(logits, y)  # Compute loss for benchmarking
                 loss.backward()
             with nvtx.range("optimizer_step"):
                 optimizer.step()
@@ -193,7 +203,8 @@ if __name__ == "__main__":
         "optimizer": args.optimizer,
         "device": args.device,
         "evaluation_steps": args.evaluation_steps,
-        "warmup_steps": args.warmup_steps
+        "warmup_steps": args.warmup_steps,
+        "mixed_precision": args.mixed_precision
     }
     benchmark(hyperparams)
 #     else:
