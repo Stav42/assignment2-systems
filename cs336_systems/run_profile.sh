@@ -25,7 +25,7 @@ TAG="${SIZE}_${CTX}_${MODE}"
 COMMON_ARGS="--vocab_size 10000 --batch_size 4 --context_length $CTX --d_model $D_MODEL --num_layers $LAYERS --num_heads $HEADS --d_ff $D_FF"
 
 echo "=== nsys profile: $TAG ==="
-uv run nsys profile -o "$TAG" --trace=cuda,cudnn,cublas,osrt,nvtx -- \
+uv run nsys profile -o "$TAG" --force-overwrite true --trace=cuda,cudnn,cublas,osrt,nvtx -- \
   python cs336_systems/base_bench.py --device cuda $FLAG $COMMON_ARGS \
   2>&1 | tee "${TAG}_nsys.log"
 
@@ -34,5 +34,5 @@ uv run python cs336_systems/base_bench.py --device cuda $FLAG $COMMON_ARGS \
   2>&1 | tee "${TAG}_timeit.log"
 
 echo "=== forward-pass NVTX stats (GPU-projected) ==="
-nsys stats --report nvtx_gpu_proj_sum "${TAG}.nsys-rep" 2>/dev/null \
-  || nsys stats --report nvtx_sum "${TAG}.nsys-rep"
+nsys stats --force-export=true --report nvtx_gpu_proj_sum "${TAG}.nsys-rep" 2>/dev/null \
+  || nsys stats --force-export=true --report nvtx_sum "${TAG}.nsys-rep"
