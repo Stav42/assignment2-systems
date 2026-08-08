@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generates 8 memory snapshots for the `large` model:
-#   {ctx 128, 2048} x {forward, full step} x {fp32, bf16 mixed}
+#   {ctx 128, 1024} x {forward, full step} x {fp32, bf16 mixed}
 # Run from the repo root. Continues past OOM/failures instead of aborting.
 set -uo pipefail
 
@@ -41,7 +41,7 @@ run_one() {
   fi
 }
 
-for ctx in 128 2048; do
+for ctx in 128 1024; do
   for mode in forward full_step; do
     for prec in fp32 bf16; do
       run_one "$ctx" "$mode" "$prec"
