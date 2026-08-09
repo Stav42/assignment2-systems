@@ -12,6 +12,8 @@ from cs336_basics.nn_utils import cross_entropy
 from cs336_basics.optimizer import AdamW
 import torch.cuda.nvtx as nvtx
 
+from torch.utils.checkpoint import checkpoint
+
 
 def annotated_scaled_dot_product_attention(Q, K, V, mask=None):
     d_k = K.shape[-1]
@@ -58,6 +60,8 @@ parser.add_argument("--optimizer", action="store_true", default=False, help="Opt
 parser.add_argument("--local", action="store_true", default=False, help="If set, run the benchmark locally without using Modal")
 parser.add_argument("--mixed_precision", action="store_true", default=False, help="If set, run forward/loss under BF16 autocast mixed precision")
 parser.add_argument("--memory_profiling", action="store_true", default=False, help="If set, set memory profiling and dump memory snapshot to file")
+parser.add_argument("--checkpoint_group_size", type=int, default=0,
+                    help="Blocks per checkpoint call; 0 disables checkpointing")
 args = parser.parse_args()
 
 '''
@@ -78,6 +82,26 @@ I must understand how this integrates with the uv system that we have setup righ
 How will the image in the modal app work with the uv system? The code will obviously run on their computer
 uv system is there on my local PC. What's up with all that?
 '''
+
+def checkpointed_forward(self, x):
+
+    x = self.token_embeddings(x)
+    k = args.checkpoint_group_size
+
+    if k > 0:
+        layers = list(self.layers)
+        for i in range(0, len(layers), k):
+            def run_group(inp, g=layers[i:i+k]):
+                for layer in g:
+                    inp = layer(inp)
+                return inp
+            x = checkpoint(run_group, x, use_reentrant=False)
+    else:
+        for layer in self.layers:
+            x = layer(x)
+
+    x = self.ln_final(x)
+    return self.lm_head(x)
 
 # @app.function(gpu="A100", image=image)
 def benchmark(params: dict):
@@ -115,6 +139,8 @@ def benchmark(params: dict):
     else:
         benchmark_type = "optimizer"
         print("Benchmarking optimizer step...")
+
+    BasicsTransformerLM.forward = checkpointed_forward
         
     lm = BasicsTransformerLM(
         vocab_size=vocab_size,
@@ -125,6 +151,8 @@ def benchmark(params: dict):
         d_ff=d_ff,
         rope_theta=rope_theta
     )
+
+    
 
     lm.to(device)
 
@@ -153,6 +181,7 @@ def benchmark(params: dict):
     start_time = timeit.default_timer()
     print(f"Starting benchmark for {benchmark_type} with {evaluation_steps} steps...")
 
+    torch.cuda.reset_peak_memory_stats()
     # Evaluation steps
     for _ in range(evaluation_steps):
         if benchmark_type == "forward_only":
@@ -184,6 +213,7 @@ def benchmark(params: dict):
     print(f"Time taken: {end_time - start_time:.2f} seconds")
     print(f"Average time per step: {(end_time - start_time) / evaluation_steps:.2f} seconds")
     print(f"Total iterations: {evaluation_steps}")
+    print(f"Peak GPU memory usage: {torch.cuda.max_memory_allocated() / (1024 ** 3):.2f} GB")
 
     if args.memory_profiling:
         torch.cuda.memory._dump_snapshot("./memory_snapshot.pickle")
@@ -211,7 +241,8 @@ if __name__ == "__main__":
         "device": args.device,
         "evaluation_steps": args.evaluation_steps,
         "warmup_steps": args.warmup_steps,
-        "mixed_precision": args.mixed_precision
+        "mixed_precision": args.mixed_precision, 
+        "checkpoint_group_size": args.checkpoint_group_size
     }
     benchmark(hyperparams)
 #     else:
