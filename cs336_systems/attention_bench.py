@@ -14,11 +14,14 @@ compiled_attn = torch.compile(scaled_dot_product_attention)
 
 
 def bench(fn, q, k, v):
-    q.grad = k.grad = v.grad = None
+    # warm up BOTH graphs (forward and backward) so nothing compiles inside a timer
     for _ in range(10):
-        fn(q, k, v)
+        fn(q, k, v).sum().backward()
     torch.cuda.synchronize()
 
+    q.grad = k.grad = v.grad = None      # so the memory reading matches theory
+
+    # --- forward only ---
     start = timeit.default_timer()
     for _ in range(N_ITERS):
         out = fn(q, k, v)
@@ -26,16 +29,16 @@ def bench(fn, q, k, v):
     fwd = (timeit.default_timer() - start) / N_ITERS * 1000
 
     mem = torch.cuda.memory_allocated() / 1024**2
+    del out
 
-    loss = out.sum()
+    # --- forward + backward ---
     start = timeit.default_timer()
     for _ in range(N_ITERS):
-        loss.backward(retain_graph=True)
+        fn(q, k, v).sum().backward()
     torch.cuda.synchronize()
-    bwd = (timeit.default_timer() - start) / N_ITERS * 1000
+    total = (timeit.default_timer() - start) / N_ITERS * 1000
 
-    del out, loss
-    return fwd, bwd, mem
+    return fwd, total - fwd, mem
 
 if __name__ == "__main__":
 
