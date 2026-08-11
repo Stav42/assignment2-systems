@@ -28,7 +28,7 @@ def annotated_scaled_dot_product_attention(Q, K, V, mask=None):
     return output
 
 
-cs336_basics.model.scaled_dot_product_attention = annotated_scaled_dot_product_attention
+# cs336_basics.model.scaled_dot_product_attention = annotated_scaled_dot_product_attention
 
 # import modal
 
@@ -62,8 +62,13 @@ parser.add_argument("--mixed_precision", action="store_true", default=False, hel
 parser.add_argument("--memory_profiling", action="store_true", default=False, help="If set, set memory profiling and dump memory snapshot to file")
 parser.add_argument("--checkpoint_group_size", type=int, default=0,
                     help="Blocks per checkpoint call; 0 disables checkpointing")
+parser.add_argument("--compile", action="store_true", default=False,
+                    help="Wrap the model in torch.compile")
 args = parser.parse_args()
 
+
+if not args.compile:
+    cs336_basics.model.scaled_dot_product_attention = annotated_scaled_dot_product_attention
 '''
 To finish the task, I must:
 1. Write a script that takes in hyperparameters
@@ -152,10 +157,13 @@ def benchmark(params: dict):
         rope_theta=rope_theta
     )
 
-    
 
     lm.to(device)
 
+
+    if args.compile:
+        lm = torch.compile(lm)
+        
     optimizer = AdamW(lm.parameters(), lr=1e-3, weight_decay=0.01)
 
     if dataset_path is not None:
