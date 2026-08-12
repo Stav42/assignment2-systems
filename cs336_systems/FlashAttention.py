@@ -13,7 +13,9 @@ def flash_backward(Q, K, V, O, dO, L, is_causal=False):
         k_idx = torch.arange(K.shape[1], device=Q.device)
         S = S + torch.where(q_idx[:, None] >= k_idx[None, :], 0.0, -1e6)
 
-    P  = torch.exp(S - L.unsqueeze(-1))
+    # Exponentiate in fp32 since L may be fp32, then match the input dtype so
+    # the matmuls below see consistent operands.
+    P  = torch.exp(S.float() - L.unsqueeze(-1)).to(Q.dtype)
     dV = torch.einsum("bqk,bqd->bkd", P, dO)
     dP = torch.einsum("bqd,bkd->bqk", dO, V)
     D  = (O * dO).sum(dim=-1)
