@@ -1,5 +1,29 @@
 import torch
 
+
+@torch.compile
+def flash_backward(Q, K, V, O, dO, L, is_causal=False):
+    d = Q.shape[-1]
+    scale = 1.0 / (d ** 0.5)
+
+    # This part is the recompute part
+    S = torch.einsum("bqd,bkd->bqk", Q, K) * scale
+    if is_causal:
+        q_idx = torch.arange(Q.shape[1], device=Q.device)
+        k_idx = torch.arange(K.shape[1], device=Q.device)
+        S = S + torch.where(q_idx[:, None] >= k_idx[None, :], 0.0, -1e6)
+
+    P  = torch.exp(S - L.unsqueeze(-1))
+    dV = torch.einsum("bqk,bqd->bkd", P, dO)
+    dP = torch.einsum("bqd,bkd->bqk", dO, V)
+    D  = (O * dO).sum(dim=-1)
+    dS = P * (dP - D.unsqueeze(-1))
+    dQ = torch.einsum("bqk,bkd->bqd", dS, K) * scale
+    dK = torch.einsum("bqk,bqd->bkd", dS, Q) * scale
+
+    return dQ, dK, dV
+
+
 class FlashAttentionPytorch(torch.autograd.Function):
     @staticmethod
     def forward(ctx, Q, K, V, is_causal=False):
@@ -34,8 +58,12 @@ class FlashAttentionPytorch(torch.autograd.Function):
             L[:, i*Bq:(i+1)*Bq] = m_i + torch.log(l_i)
 
         ctx.save_for_backward(Q, K, V, O, L)
+        ctx.is_causal = is_causal
         return O
 
     @staticmethod
     def backward(ctx, dO):
-        raise NotImplementedError("Backward pass is not implemented for FlashAttentionPytorch.")
+        Q, K, V, O, L = ctx.saved_tensors
+        dQ, dK, dV = flash_backward(Q, K, V, O, dO, L, ctx.is_causal)
+        return dQ, dK, dV, None
+        # raise NotImplementedError("Backward pass is not implemented for FlashAttentionPytorch.")
