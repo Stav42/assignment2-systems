@@ -40,7 +40,9 @@ class FlashAttentionTriton(torch.autograd.Function):
         Bq, Bk = DEFAULT_Q_TILE, DEFAULT_K_TILE
 
         O = torch.empty_like(Q, device=Q.device)
-        L = torch.empty(B, Nq, device=Q.device, dtype=Q.dtype)
+        # L stays fp32 even for bf16 inputs: it is a logsumexp, and the backward
+        # exponentiates S - L, so precision here costs accuracy everywhere.
+        L = torch.empty(B, Nq, device=Q.device, dtype=torch.float32)
 
         flash_kernel_fwd[(triton.cdiv(Nq, Bq), B)](
             Q, K, V, O, L,
