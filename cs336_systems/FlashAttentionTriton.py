@@ -26,13 +26,18 @@ def flash_backward(Q, K, V, O, dO, L, is_causal=False):
     return dQ, dK, dV
 
 
+# Tile sizes, overridable by the benchmark. Must be >= 16 and powers of 2.
+DEFAULT_Q_TILE = 16
+DEFAULT_K_TILE = 16
+
+
 class FlashAttentionTriton(torch.autograd.Function):
     @staticmethod
     def forward(ctx, Q, K, V, is_causal=False):
         Q, K, V = Q.contiguous(), K.contiguous(), V.contiguous()
         B, Nq, d = Q.shape
         Nk = K.shape[1]
-        Bq = Bk = 16
+        Bq, Bk = DEFAULT_Q_TILE, DEFAULT_K_TILE
 
         O = torch.empty_like(Q, device=Q.device)
         L = torch.empty(B, Nq, device=Q.device, dtype=Q.dtype)
