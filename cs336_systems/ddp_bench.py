@@ -57,7 +57,7 @@ def worker(rank, world_size, args):
         rope_theta=10000.0,
         **cfg,
     ).to(device)
-    ddp_model = DDP(model)
+    ddp_model = DDP(model, flat=args.flat)
     optimizer = AdamW(ddp_model.parameters(), lr=1e-4)
 
     n_params = sum(p.numel() for p in ddp_model.parameters())
@@ -111,7 +111,8 @@ def worker(rank, world_size, args):
 
     if rank == 0:
         print(f"\nmodel={args.model_size} ({n_params / 1e6:.0f}M params)  "
-              f"world_size={world_size}  backend={args.backend}")
+              f"world_size={world_size}  backend={args.backend}  "
+              f"grads={'flat' if args.flat else 'individual'}")
         print(f"global batch={args.batch_size} (local {local_bs})  "
               f"context={args.context_length}")
         print(f"gradients all-reduced per step: {grad_mb:.1f} MB")
@@ -136,6 +137,7 @@ def main():
     ap.add_argument("--vocab-size", type=int, default=10000)
     ap.add_argument("--warmup-steps", type=int, default=5)
     ap.add_argument("--steps", type=int, default=10)
+    ap.add_argument("--flat", action="store_true", help="Batch all gradients into one all-reduce")
     args = ap.parse_args()
 
     if args.backend == "nccl" and torch.cuda.device_count() < args.world_size:
