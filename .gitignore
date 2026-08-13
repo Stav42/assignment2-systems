@@ -170,3 +170,7 @@ memory_snapshots/
 *.nsys-rep
 *.qdstrm
 *.sqlite
+
+# Benchmark outputs
+*.csv
+*.log
