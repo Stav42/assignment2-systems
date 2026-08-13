@@ -37,6 +37,7 @@ def get_flashattention_autograd_function_triton() -> type:
     raise NotImplementedError
 
 
+from cs336_systems.ddp import DDP
 def get_ddp(module: torch.nn.Module) -> torch.nn.Module:
     """
     Returns a torch.nn.Module container that handles
@@ -55,6 +56,7 @@ def get_ddp(module: torch.nn.Module) -> torch.nn.Module:
         Instance of a DDP class.
     """
     # For example: return DDP(module)
+    return DDP(module)
     raise NotImplementedError
 
 
@@ -70,6 +72,8 @@ def ddp_on_after_backward(ddp_model: torch.nn.Module, optimizer: torch.optim.Opt
             Optimizer being used with the DDP-wrapped model.
     """
     # For example: ddp_model.finish_gradient_synchronization()
+    ddp_model.finish_gradient_synchronization()
+    return
     raise NotImplementedError
 
 
